@@ -1,0 +1,102 @@
+---
+output: html_document
+---
+# Gender income disparity using 2014 US census data.
+##Intro
+data downloaded from http://www.census.gov/programs-surveys/acs/data/pums.html, -> 2014 ACS 1-year PUMS CsV format.
+
+data dictionary: http://www2.census.gov/programs-surveys/acs/tech_docs/pums/data_dict/PUMSDataDict14.txt
+
+## Set up the libraries.
+```{r, message = F}
+setwd("K:/Data_analytics/US_census")
+library("dplyr")
+library("data.table")
+library("ggplot2")
+library("gridExtra")
+library("scales")
+library(corrplot)
+source("multiplot.r")
+```
+
+## Loading the data.
+### The following are some factors that could be related to income level. 
+- ST: state
+- MAR: Marital status 
+- SCHL: Education level       
+- SEX : Sex        
+- ESR: Employment status        
+- OC: own children         
+- PINCP: Total person's income      
+- RAC1P: race      
+
+```{r}
+
+
+##read data and save it as RData to save time nect time:
+
+colsToKeep <- c("PINCP", "SCHL", "ESR", "ST",  "MAR","SEX", "OC", "RAC1P"  )
+DataA <- fread("K:/Data_analytics/US_census/pums/ss14pusa.csv" , select=colsToKeep )  
+DataB <- fread("K:/Data_analytics/US_census/pums/ss14pusb.csv", select=colsToKeep )
+Data <- rbind(DataA, DataB)
+rm(DataA, DataB)
+save(Data, file="population_Data.RData")
+
+
+Data <- tbl_df(Data) 
+
+ds <- Data %>% 
+      na.omit()
+
+
+ds$SCHL[ds$SCHL<21 ] = 0
+ds$SCHL[ds$SCHL == 21] = 1
+ds$SCHL[ds$SCHL == 22] = 2
+ds$SCHL[ds$SCHL == 23] = 2
+ds$SCHL[ds$SCHL == 24] = 3
+ds$MAR[ds$MAR != 1 ] = 2
+
+cor_val = c("ST", "MAR", "SCHL", "SEX","OC", "PINCP", "RAC1P")
+test_sample <- sample_n(ds,100000)[, cor_val]
+names(test_sample) <- c("State", "Married", "Education", "Sex", "Has Kid", "Income", "Race")
+M = cor(test_sample)
+
+
+col_choice <- colorRampPalette(c("green", 'gray', "red"))
+
+png(height=1200, width=1200, pointsize=30, file="overlap.png")
+corrplot.mixed(M, upper = "square", col = col_choice(100))
+
+sex_map = c( '1' = 'Male', '2' = 'Female')
+ds$SEX = sex_map[ds$SEX]
+
+ds$SCHL = as.character(ds$SCHL)
+deg_map = c('0' = 'Non', '1' = 'BS ', '2' = 'MS ', '3' = 'PhD')
+ds$SCHL = deg_map[ds$SCHL]
+ds = cbind( ds, "Gender_Degree" = paste(ds$SCHL, ds$SEX) )
+
+married_map = c('1' = 'Married', '2' = 'Not_Mar')
+ds$MAR = married_map[ds$MAR]
+ds = cbind( ds, "Gender_MAR" = paste(ds$MAR, ds$SEX) )
+ds <- ds  %>%  filter(ESR != 3) %>% filter(PINCP > 0)
+```
+
+```{r, echo = FALSE}
+degree = substr(ds$Gender_Degree, 1, 3)
+p1 <- ggplot(ds, aes(ds$Gender_Degree, ds$PINCP, fill = degree ) )  +
+  geom_boxplot(notch = FALSE, outlier.colour="#CC6600") + 
+  ylab("Income")  +  scale_y_log10(limits = c(1000,800000), breaks = trans_breaks('log10', function(x) 10^x),  labels = trans_format('identity', dollar_format())) +
+  xlab("Degree + Gender") +  ggtitle("All Income by Gender and Degree") +
+  theme(panel.background = element_rect(fill = 'white'), axis.text.x = element_text(angle = 30, hjust = 1), legend.position="none", text=element_text(size=30)) 
+
+
+ds_not_mar <- ds %>% filter(MAR == 'Not_Mar')
+degree_notmar = substr(ds_not_mar$Gender_Degree, 1, 3)
+p2 <- ggplot(ds_not_mar, aes(ds_not_mar$Gender_Degree, ds_not_mar$PINCP, fill = degree_notmar ) )  +
+  geom_boxplot(notch = FALSE, outlier.colour="#CC6600") +
+  ylab("Income") +  scale_y_log10(limits = c(1000,800000), breaks = trans_breaks('log10', function(x) 10^x),  labels = trans_format('identity', dollar_format())) +
+  xlab("Degree + Gender") + ggtitle("Non-Married income by Gender and Degree")+
+  theme(panel.background = element_rect(fill = 'white'), axis.text.x = element_text(angle = 30, hjust = 1), legend.position="none", text=element_text(size=30))
+
+multiplot(p1, p2, cols=2)
+```
